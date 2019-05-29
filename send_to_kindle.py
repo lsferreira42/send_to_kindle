@@ -1,12 +1,43 @@
 from flask import Flask, request
+from time import sleep
+from threading import Thread
 import requests
 import sys
+import queue
+import logging
 
 DEBUG = True
 app = Flask(__name__)
 
-# TODO: make threaded
-# TODO: use queue
+
+class UlrQueue:
+  internal = queue.SimpleQueue()
+  def __init__(self):
+    pass
+  def put(self, value):
+    if isinstance(value, dict):
+      return self.internal.put_nowait(value)
+    else:
+      raise("Value must be a dict.")
+
+  def get(self):
+    try:
+      return self.internal.get_nowait()
+    except:
+      return False
+
+
+
+def post_loop(urlqueue):
+  while True:
+    try:
+      url_dict = urlqueue.get()
+      if url_dict:
+        response = post_fivefilters(url_dict['url'])
+      logging.info(response)
+    except:
+      sleep(1)
+  return
 
 def post_fivefilters(url):
   headers = {
@@ -41,7 +72,8 @@ def debug(response):
 
 @app.route("/kindle", methods=["GET", "POST"])
 def flask_main():
-    response_body = """<html>
+  urlqueue = UlrQueue()
+  response_body = """<html>
   <head>
   <script language=javascript>
   function closemyself() {
@@ -56,21 +88,20 @@ def flask_main():
   }
   </script>
   <body onLoad="setTimeout('closemyself()',2000);">
-"""
-    url = request.args.get("url")
-    response = post_fivefilters(url)
-    response_body += "URL: {}<br>Status Code: {}<br>Debug Info: <br>{}".format(
-        url,
-        response.status_code,
-        debug(response))
-    response_body += """    </body>
+  On queue!
+  </body>
   </head>
 </html>"""
-    return response_body
+  url = request.args.get("url")
+  urlqueue.put({"url": url})
+  return response_body
 
 
 def main():
     url = sys.argv[1]
+    urlqueue = UlrQueue()
+    worker = Thread(target = post_loop, args = (urlqueue, ))
+    worker.start()
     if url == "api":
         app.run(host="0.0.0.0", port=5003)
         return
